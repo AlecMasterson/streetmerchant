@@ -4,10 +4,12 @@ import {startAPIServer, stopAPIServer} from './web';
 import {Browser, launch} from 'puppeteer';
 import {getSleepTime} from './util';
 import {logger} from './logger';
-import {storeList} from './store/model';
+import {Store, storeList} from './store/model';
 import {tryLookupAndLoop} from './store';
+import {sendGenericMessage} from './messaging/discord';
 
 let browser: Browser | undefined;
+let currentHour: number;
 
 async function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -30,7 +32,10 @@ async function restartMain() {
 async function main() {
   browser = await launchBrowser();
 
-  for (const store of storeList.values()) {
+  const activeStoreNames = config.store.stores.map((store: {name: string}) => store.name);
+  const activeStores: Store[] = [...storeList.values()].filter((store: Store) => activeStoreNames.includes(store.name));
+
+  for (const store of activeStores) {
     logger.debug('store links', {meta: {links: store.links}});
     if (store.setupAction !== undefined) {
       store.setupAction(browser);
@@ -58,6 +63,24 @@ async function stopAndExit() {
   Process.exit(0);
 }
 
+function healthCheck() {
+  const newHour: number = new Date().getHours();
+
+  if (!currentHour) {
+    currentHour = newHour;
+    sendGenericMessage('Bot Started!');
+    return;
+  }
+
+  if (newHour > currentHour) {
+    currentHour = newHour;
+
+    if (newHour % 2 === 0) {
+      sendGenericMessage('I Am Still Running :heart:');
+    }
+  }
+}
+
 /**
  * Will continually run until user interferes.
  */
@@ -65,6 +88,7 @@ async function loopMain() {
   try {
     restartMain();
     await main();
+    setInterval(healthCheck, 5000);
   } catch (error: unknown) {
     logger.error(
       '✖ something bad happened, resetting streetmerchant in 5 seconds',

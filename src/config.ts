@@ -227,6 +227,7 @@ const notifications = {
     apnsBundleId: envOrString(process.env.APNS_BUNDLEID),
   },
   discord: {
+    heartWebHook: envOrString(process.env.DISCORD_WEB_HOOK_HEART),
     notifyGroup: envOrArray(process.env.DISCORD_NOTIFY_GROUP),
     notifyGroupSeries: {
       3060: envOrArray(process.env.DISCORD_NOTIFY_GROUP_3060),

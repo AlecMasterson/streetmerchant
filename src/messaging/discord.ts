@@ -4,7 +4,7 @@ import {config} from '../config';
 import {logger} from '../logger';
 import {DMPayload} from '.';
 
-const {notifyGroup, webhooks, notifyGroupSeries} = config.notifications.discord;
+const {heartWebHook, notifyGroup, webhooks, notifyGroupSeries} = config.notifications.discord;
 const {pollInterval, responseTimeout, token, userId} = config.captchaHandler;
 
 function getIdAndToken(webhook: string) {
@@ -20,78 +20,76 @@ function getIdAndToken(webhook: string) {
   };
 }
 
-export function sendDiscordMessage(link: Link, store: Store) {
+function sendMessage(message: string, embed: Discord.MessageEmbed, customWebHook: string | null = null): void {
   if (webhooks.length > 0) {
-    logger.debug('↗ sending discord message');
+    logger.debug('↗ sending Discord message');
 
     (async () => {
       try {
-        const embed = new Discord.MessageEmbed()
-          .setTitle('_**Stock alert!**_')
-          .setDescription(
-            '> provided by [streetmerchant](https://github.com/jef/streetmerchant) with :heart:'
-          )
-          .setThumbnail(
-            'https://raw.githubusercontent.com/jef/streetmerchant/main/docs/assets/images/streetmerchant-logo.png'
-          )
-          .setColor('#52b788')
-          .setTimestamp();
-
-        embed.addField('Store', store.name, true);
-        if (link.price)
-          embed.addField('Price', `${store.currency}${link.price}`, true);
-        embed.addField('Product Page', link.url);
-        if (link.cartUrl) embed.addField('Add to Cart', link.cartUrl);
-        embed.addField('Brand', link.brand, true);
-        embed.addField('Model', link.model, true);
-        embed.addField('Series', link.series, true);
-
-        embed.setTimestamp();
-
-        let notifyText: string[] = [];
-
-        if (notifyGroup) {
-          notifyText = notifyText.concat(notifyGroup);
-        }
-
-        const notifyKeys = Object.keys(notifyGroupSeries);
-        const notifyIndex = notifyKeys.indexOf(link.series);
-        if (notifyIndex !== -1) {
-          notifyText = notifyText.concat(
-            Object.values(notifyGroupSeries)[notifyIndex]
-          );
-        }
-
         const promises = [];
-        for (const webhook of webhooks) {
+
+        const finalWebHooks: string[] = customWebHook ? [customWebHook] : webhooks;
+        for (const webhook of finalWebHooks) {
           const {id, token} = getIdAndToken(webhook);
           const client = new Discord.WebhookClient(id, token);
 
-          promises.push(
-            new Promise((resolve, reject) => {
-              client
-                .send(notifyText.join(' '), {
-                  embeds: [embed],
-                  username: 'streetmerchant',
-                })
-                .then(resp => {
-                  logger.info('✔ discord message sent resp.id: ' + resp.id);
-                  resolve(resp);
-                })
-                .catch(err => reject(err))
-                .finally(() => client.destroy());
+          promises.push(new Promise((resolve, reject) => {
+            client.send(message, {
+              embeds: [embed],
+              username: 'streetmerchant'
             })
-          );
+            .then((response) => {
+              logger.info(`✔ Discord message sent resp.id: ${response.id}`);
+              resolve(response);
+            })
+            .catch((error) => reject(error))
+            .finally(() => client.destroy())
+          }));
         }
 
-        await Promise.all(promises).catch(err =>
-          logger.error("✖ couldn't send discord message", err)
-        );
+        await Promise.all(promises).catch((error) => logger.error("✖ couldn't send Discord message", error));
       } catch (error: unknown) {
-        logger.error("✖ couldn't send discord message", error);
+        logger.error("✖ couldn't send Discord message", error);
       }
     })();
   }
+}
+
+export function sendGenericMessage(message: string): void {
+  const embed = new Discord.MessageEmbed()
+    .setTitle(message)
+    .setColor('#52b788')
+    .setTimestamp();
+
+  sendMessage('', embed, heartWebHook);
+}
+
+export function sendDiscordMessage(link: Link, store: Store) {
+  const cartUrl: string = link.cartUrl ? link.cartUrl : 'Link Unavailable';
+  const price: string = link.price ? `${store.currency}${link.price}` : 'Unkown';
+
+  const embed = new Discord.MessageEmbed()
+    .setTitle('_**Stock alert!**_')
+    .setDescription('> provided by your overlord EPSenex with :heart:')
+    .setTimestamp()
+    .setColor('#52b788')
+    .addField('Store', store.name, true)
+    .addField('Series', link.series, true)
+    .addField('Price', price, true)
+    .addField('Product Page', link.url)
+    .addField('Add to Cart', cartUrl);
+
+  let notifyText: string[] = [];
+
+  if (notifyGroup) {
+    notifyText = notifyText.concat(notifyGroup);
+  }
+
+  if (Object.keys(notifyGroupSeries).indexOf(link.series) !== -1) {
+    notifyText = notifyText.concat(notifyGroupSeries[link.series]);
+  }
+
+  sendMessage(notifyText.join(' '), embed);
 }
 
 export async function sendDMAsync(
